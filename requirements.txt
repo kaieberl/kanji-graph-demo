@@ -1,0 +1,8 @@
+bs4
+selenium
+networkx
+numpy
+openai
+pandas
+SudachiPy
+matplotlib
