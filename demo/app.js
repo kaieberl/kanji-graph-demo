@@ -1,10 +1,16 @@
 "use strict";
 
 const GRAPH_PATH = "../data/kanji_digraph.gexf";
+const SIMILAR_LEVEL_LIMIT = 0;
+const PAGE_SIZE = 10;
+const DEFAULT_NODE_LIMIT = 12;
 
 const state = {
   graph: null,
-  graphMode: "example",
+  graphMode: "similar",
+  lookupValue: "時",
+  pages: {},
+  showRuby: true,
   tokenizer: null,
   tokenizerStatus: "loading",
 };
@@ -24,23 +30,21 @@ function bindElements() {
     "status",
     "nodeCount",
     "edgeCount",
-    "kanjiInput",
-    "levelLimit",
-    "levelLimitValue",
-    "componentInput",
-    "componentLimit",
-    "graphLimit",
-    "graphLimitValue",
+    "lookupInput",
+    "lookupView",
+    "textView",
     "knownLevel",
-    "knownLevelValue",
     "textInput",
-    "rubyToggle",
-    "kanjiDetails",
-    "componentDetails",
+    "lookupResults",
+    "graphNodeLimit",
+    "graphNodeLimitValue",
+    "graphPanel",
     "graphTitle",
     "graphMeta",
     "graphSvg",
     "textResults",
+    "textUnknown",
+    "textHistogram",
   ]) {
     el[id] = document.getElementById(id);
   }
@@ -51,60 +55,54 @@ function bindEvents() {
     button.addEventListener("click", () => selectTab(button.dataset.tab));
   });
 
-  document.querySelectorAll("[data-graph-mode]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.graphMode = button.dataset.graphMode;
-      document.querySelectorAll("[data-graph-mode]").forEach((item) => item.classList.toggle("active", item === button));
-      renderGraph();
-    });
-  });
-
-  document.getElementById("kanjiForm").addEventListener("submit", (event) => {
+  document.getElementById("lookupForm").addEventListener("submit", (event) => {
     event.preventDefault();
-    renderKanji();
-    renderGraph();
+    runLookup(el.lookupInput.value);
   });
 
-  document.getElementById("componentForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    renderComponent();
+  el.knownLevel.addEventListener("change", () => {
+    resetTextPages();
+    renderTextAnalysis();
+  });
+  el.graphNodeLimit.addEventListener("input", () => {
+    updateRangeLabels();
     renderGraph();
   });
-
-  for (const range of [el.levelLimit, el.graphLimit, el.knownLevel]) {
-    range.addEventListener("input", () => {
-      updateRangeLabels();
-      renderKanji();
-      renderGraph();
-      renderTextAnalysis();
-    });
-  }
-
-  el.componentLimit.addEventListener("input", () => {
-    renderComponent();
-    renderGraph();
+  el.textInput.addEventListener("input", () => {
+    resetTextPages();
+    renderTextAnalysis();
   });
-  el.textInput.addEventListener("input", renderTextAnalysis);
-  el.rubyToggle.addEventListener("change", renderTextAnalysis);
 
   document.body.addEventListener("click", (event) => {
+    const pageButton = event.target.closest("[data-page-key]");
+    if (pageButton) {
+      state.pages[pageButton.dataset.pageKey] = Number(pageButton.dataset.page);
+      if (pageButton.dataset.pageKey.startsWith("text-")) {
+        renderTextAnalysis();
+      } else {
+        runLookup(state.lookupValue, { preservePages: true });
+      }
+      return;
+    }
+
     const kanjiButton = event.target.closest("[data-kanji]");
     if (kanjiButton) {
-      el.kanjiInput.value = kanjiButton.dataset.kanji;
       selectTab("lookup");
-      renderKanji();
-      renderGraph();
+      runLookup(kanjiButton.dataset.kanji);
       return;
     }
 
     const componentButton = event.target.closest("[data-component]");
     if (componentButton) {
-      el.componentInput.value = componentButton.dataset.component;
       selectTab("lookup");
-      renderComponent();
-      state.graphMode = "component";
-      document.querySelectorAll("[data-graph-mode]").forEach((item) => item.classList.toggle("active", item.dataset.graphMode === "component"));
-      renderGraph();
+      runLookup(componentButton.dataset.component);
+    }
+  });
+
+  document.body.addEventListener("change", (event) => {
+    if (event.target.id === "rubyToggle") {
+      state.showRuby = event.target.checked;
+      renderTextAnalysis();
     }
   });
 }
@@ -124,7 +122,7 @@ async function loadGraph() {
   } catch (error) {
     el.status.textContent = "Could not load graph data";
     const message = "Open this demo through a local web server from the repository root, for example: python3 -m http.server";
-    el.kanjiDetails.innerHTML = `<div class="error">${escapeHtml(message)}<br>${escapeHtml(error.message)}</div>`;
+    el.lookupResults.innerHTML = `<article class="panel detail-panel"><div class="error">${escapeHtml(message)}<br>${escapeHtml(error.message)}</div></article>`;
   }
 }
 
@@ -162,22 +160,18 @@ function buildTokenizer() {
 }
 
 function renderAll() {
-  renderKanji();
-  renderComponent();
-  renderGraph();
+  runLookup(state.lookupValue);
   renderTextAnalysis();
 }
 
 function updateRangeLabels() {
-  el.levelLimitValue.textContent = el.levelLimit.value;
-  el.graphLimitValue.textContent = el.graphLimit.value;
-  el.knownLevelValue.textContent = el.knownLevel.value;
+  el.graphNodeLimitValue.textContent = el.graphNodeLimit.value;
 }
 
 function selectTab(tabName) {
   document.querySelectorAll(".tab-button").forEach((button) => button.classList.toggle("active", button.dataset.tab === tabName));
-  document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
-  document.getElementById(`${tabName}Panel`).classList.add("active");
+  el.lookupView.classList.toggle("active", tabName === "lookup");
+  el.textView.classList.toggle("active", tabName === "text");
 }
 
 function parseGexf(xmlText) {
@@ -285,35 +279,73 @@ function makeGraph(raw) {
     getSuccessors(component, kanji) {
       return this.getCompounds(component).filter((item) => item !== kanji);
     },
-    getSimilarKanji(kanji, levelLimit = 0, limit = 2) {
+    getSimilarKanji(kanji, levelLimit = 0) {
       const components = this.getComponents(kanji);
       if (!components.length) {
         return [];
       }
       return this.getSuccessors(components[0], kanji)
-        .filter((item) => this.getLevel(item) >= levelLimit)
-        .slice(0, limit);
+        .filter((item) => this.getLevel(item) >= levelLimit);
     },
   };
 }
 
-function renderKanji() {
+function runLookup(value, options = {}) {
   if (!state.graph) {
     return;
   }
-  const kanji = normalizeSingleInput(el.kanjiInput.value);
-  const levelLimit = Number(el.levelLimit.value);
-  if (!kanji || !state.graph.has(kanji)) {
-    el.kanjiDetails.innerHTML = `<h2>Kanji</h2><div class="empty">${escapeHtml(kanji || "Input")} is not in the graph.</div>`;
+  const node = normalizeSingleInput(value);
+  if (!options.preservePages && node !== state.lookupValue) {
+    resetLookupPages();
+  }
+  state.lookupValue = node;
+  el.lookupInput.value = node;
+
+  if (!node || !state.graph.has(node)) {
+    el.lookupResults.innerHTML = `<article class="panel detail-panel"><h2>Lookup</h2><div class="empty">${escapeHtml(node || "Input")} is not in the graph.</div></article>`;
+    el.graphPanel.classList.add("hidden");
     return;
   }
 
+  const isKanji = isKanjiResult(node);
+  const isComponent = isComponentResult(node);
+  const sections = [];
+  if (isKanji) {
+    sections.push(renderKanjiPanel(node));
+  }
+  if (isComponent) {
+    sections.push(renderComponentPanel(node));
+  }
+
+  if (!sections.length) {
+    sections.push(`<article class="panel detail-panel"><h2>${escapeHtml(node)}</h2><div class="empty">No lookup details are available for this node.</div></article>`);
+  }
+
+  el.lookupResults.innerHTML = sections.join("");
+  state.graphMode = isComponent ? "component" : "similar";
+  renderGraph();
+}
+
+function isKanjiResult(node) {
+  if (!state.graph.has(node)) {
+    return false;
+  }
+  const attrs = state.graph.attrs(node);
+  return state.graph.getLevel(node) >= 0 || Boolean((attrs.reading_on || []).length || (attrs.reading_kun || []).length);
+}
+
+function isComponentResult(node) {
+  return state.graph.has(node) && (state.graph.successors.get(node) || []).length > 0;
+}
+
+function renderKanjiPanel(kanji) {
   const readings = state.graph.getReadings(kanji);
   const components = state.graph.getComponents(kanji);
-  const similar = state.graph.getSimilarKanji(kanji, levelLimit);
+  const similar = state.graph.getSimilarKanji(kanji, SIMILAR_LEVEL_LIMIT);
   const attrs = state.graph.attrs(kanji);
-  el.kanjiDetails.innerHTML = `
-    <h2>${escapeHtml(kanji)}</h2>
+  return `
+    <article class="panel detail-panel">
+    <h2>Kanji: ${escapeHtml(kanji)}</h2>
     <div class="stat-grid">
       <div class="stat"><strong>${state.graph.getLevel(kanji)}</strong>level</div>
       <div class="stat"><strong>${state.graph.getStrokes(kanji)}</strong>strokes</div>
@@ -326,25 +358,18 @@ function renderKanji() {
     </div>
     ${attrs.radical ? `<p><strong>Radical:</strong> ${escapeHtml(attrs.radical)}</p>` : ""}
     <h3>Components</h3>
-    ${renderChips(components, "component")}
+    ${renderPagedChips(components, "component", "lookup-components")}
     <h3>Similar kanji</h3>
-    ${renderChips(similar, "kanji")}
+    ${renderPagedChips(similar, "kanji", "lookup-similar")}
+    </article>
   `;
 }
 
-function renderComponent() {
-  if (!state.graph) {
-    return;
-  }
-  const component = normalizeSingleInput(el.componentInput.value);
-  const limit = clamp(Number(el.componentLimit.value) || 25, 1, 200);
-  if (!component || !state.graph.has(component)) {
-    el.componentDetails.innerHTML = `<h2>Component</h2><div class="empty">${escapeHtml(component || "Input")} is not in the graph.</div>`;
-    return;
-  }
-
+function renderComponentPanel(component) {
   const compounds = state.graph.getCompounds(component);
-  const rows = compounds.slice(0, limit).map((kanji) => {
+  const page = getPage("lookup-compounds", compounds.length);
+  const shownCompounds = pageItems(compounds, page);
+  const rows = shownCompounds.map((kanji) => {
     const readings = state.graph.getReadings(kanji);
     return `
       <tr>
@@ -356,18 +381,21 @@ function renderComponent() {
     `;
   }).join("");
 
-  el.componentDetails.innerHTML = `
-    <h2>${escapeHtml(component)}</h2>
+  return `
+    <article class="panel detail-panel">
+    <h2>Component: ${escapeHtml(component)}</h2>
     <div class="stat-grid">
       <div class="stat"><strong>${state.graph.getLevel(component)}</strong>level</div>
       <div class="stat"><strong>${state.graph.getStrokes(component)}</strong>strokes</div>
       <div class="stat"><strong>${compounds.length}</strong>containing</div>
-      <div class="stat"><strong>${Math.min(limit, compounds.length)}</strong>shown</div>
+      <div class="stat"><strong>${shownCompounds.length}</strong>shown</div>
     </div>
     <table>
       <thead><tr><th>Kanji</th><th>Level</th><th>On</th><th>Kun</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="4">No compounds found.</td></tr>`}</tbody>
     </table>
+    ${renderPagination("lookup-compounds", compounds.length)}
+    </article>
   `;
 }
 
@@ -376,59 +404,39 @@ function renderGraph() {
     return;
   }
 
-  const limit = Number(el.graphLimit.value);
-  let title = "Component edges";
-  let primary = "寺";
+  const lookup = state.lookupValue;
+  let title = "Graph";
+  let primary = lookup;
   let componentNodes = new Set();
   let edges = [];
+  const nodeLimit = Number(el.graphNodeLimit.value) || DEFAULT_NODE_LIMIT;
 
-  if (state.graphMode === "example") {
-    edges = [
-      ["土", "寺"],
-      ["寸", "寺"],
-      ["寺", "時"],
-      ["寺", "持"],
-      ["日", "時"],
-      ["扌", "持"],
-    ];
-    primary = "寺";
-    componentNodes = new Set(["土", "寸", "日", "扌"]);
-  } else if (state.graphMode === "component") {
-    const component = normalizeSingleInput(el.componentInput.value);
-    primary = component;
-    title = `Kanji containing ${component}`;
-    componentNodes = new Set([component]);
-    if (state.graph.has(component)) {
-      edges = state.graph.getCompounds(component).slice(0, limit).map((kanji) => [component, kanji]);
-    }
+  if (!lookup || !state.graph.has(lookup)) {
+    el.graphPanel.classList.add("hidden");
+    return;
+  }
+
+  if (state.graphMode === "component") {
+    title = `Kanji containing ${lookup}`;
+    componentNodes = new Set([lookup]);
+    edges = state.graph.getCompounds(lookup).map((kanji) => [lookup, kanji]);
   } else {
-    const kanji = normalizeSingleInput(el.kanjiInput.value);
-    primary = kanji;
-    title = `Similar kanji around ${kanji}`;
-    if (state.graph.has(kanji)) {
-      const nodes = new Set([kanji]);
-      for (const component of state.graph.getComponents(kanji)) {
-        componentNodes.add(component);
-        edges.push([component, kanji]);
-        nodes.add(component);
-        for (const similar of state.graph.getSuccessors(component, kanji)) {
-          if (state.graph.getLevel(similar) >= 0) {
-            edges.push([component, similar]);
-            nodes.add(similar);
-          }
-          if (nodes.size >= limit) {
-            break;
-          }
-        }
-        if (nodes.size >= limit) {
-          break;
+    title = `Similar kanji around ${lookup}`;
+    for (const component of state.graph.getComponents(lookup)) {
+      componentNodes.add(component);
+      edges.push([component, lookup]);
+      for (const similar of state.graph.getSuccessors(component, lookup)) {
+        if (state.graph.getLevel(similar) >= 0) {
+          edges.push([component, similar]);
         }
       }
     }
   }
 
+  edges = limitGraphEdges(edges, lookup, nodeLimit);
+  el.graphPanel.classList.toggle("hidden", edges.length === 0);
   el.graphTitle.textContent = title;
-  el.graphMeta.textContent = `${uniqueNodes(edges).length} nodes, ${edges.length} edges`;
+  el.graphMeta.textContent = `${uniqueNodes(edges).length}/${nodeLimit} nodes, ${edges.length} edges`;
   el.graphSvg.innerHTML = drawSvgGraph(edges, { primary, componentNodes, mode: state.graphMode });
 }
 
@@ -439,13 +447,15 @@ function renderTextAnalysis() {
 
   const text = el.textInput.value;
   const threshold = Number(el.knownLevel.value);
-  const showRuby = el.rubyToggle.checked;
+  const showRuby = state.showRuby;
   const analysis = analyzeText(text, threshold);
   const annotated = renderAnnotatedText(text, analysis, { showRuby });
-  const unknownRows = [...analysis.unknown.entries()].sort((a, b) => {
+  const unknownItems = [...analysis.unknown.entries()].sort((a, b) => {
     const level = state.graph.getLevel(a[0]) - state.graph.getLevel(b[0]);
     return level || b[1] - a[1] || a[0].localeCompare(b[0], "ja");
-  }).map(([kanji, count]) => {
+  });
+  const unknownPage = getPage("text-unknown", unknownItems.length);
+  const unknownRows = pageItems(unknownItems, unknownPage).map(([kanji, count]) => {
     const readings = state.graph.getReadings(kanji);
     return `
       <tr>
@@ -457,7 +467,9 @@ function renderTextAnalysis() {
     `;
   }).join("");
 
-  const missingRows = [...analysis.missing.entries()].map(([kanji, count]) => `
+  const missingItems = [...analysis.missing.entries()];
+  const missingPage = getPage("text-missing", missingItems.length);
+  const missingRows = pageItems(missingItems, missingPage).map(([kanji, count]) => `
     <tr><td>${escapeHtml(kanji)}</td><td>${count}</td></tr>
   `).join("");
 
@@ -466,26 +478,61 @@ function renderTextAnalysis() {
       <h2>Text Analysis</h2>
       <span class="meta">known levels ${threshold}-10</span>
     </div>
-    <div class="results-grid">
-      <div>
-        <div class="annotated-text">${annotated || "<span class=\"muted\">No text.</span>"}</div>
-        ${showRuby ? `<div class="reading-status">${escapeHtml(readingStatusText())}</div>` : ""}
-      </div>
-      <div>
-        <h3>Level histogram</h3>
-        ${renderHistogram(analysis.levelCounts, threshold)}
-        <h3>Unknown kanji</h3>
-        <table>
-          <thead><tr><th>Kanji</th><th>Level</th><th>Count</th><th>Hint</th></tr></thead>
-          <tbody>${unknownRows || `<tr><td colspan="4">No unknown kanji.</td></tr>`}</tbody>
-        </table>
-        ${missingRows ? `
-          <h3>Not in graph</h3>
-          <table><thead><tr><th>Kanji</th><th>Count</th></tr></thead><tbody>${missingRows}</tbody></table>
-        ` : ""}
-      </div>
+    <div class="annotated-text">${annotated || "<span class=\"muted\">No text.</span>"}</div>
+    <div class="toggles ruby-toggle-row">
+      <label><input id="rubyToggle" type="checkbox" ${showRuby ? "checked" : ""}> Ruby hints</label>
     </div>
+    ${showRuby ? `<div class="reading-status">${escapeHtml(readingStatusText())}</div>` : ""}
   `;
+
+  el.textUnknown.innerHTML = `
+    <div class="panel-title-row">
+      <h2>Unknown Kanji</h2>
+    </div>
+    <table>
+      <thead><tr><th>Kanji</th><th>Level</th><th>Count</th><th>Hint</th></tr></thead>
+      <tbody>${unknownRows || `<tr><td colspan="4">No unknown kanji.</td></tr>`}</tbody>
+    </table>
+    ${renderPagination("text-unknown", unknownItems.length)}
+    ${missingItems.length ? `
+      <h3>Not in graph</h3>
+      <table><thead><tr><th>Kanji</th><th>Count</th></tr></thead><tbody>${missingRows}</tbody></table>
+      ${renderPagination("text-missing", missingItems.length)}
+    ` : ""}
+  `;
+
+  el.textHistogram.innerHTML = `
+    <div class="panel-title-row">
+      <h2>Level Histogram</h2>
+    </div>
+    ${renderHistogram(analysis.levelCounts, threshold)}
+  `;
+}
+
+function limitGraphEdges(edgePairs, primary, nodeLimit) {
+  if (!nodeLimit || nodeLimit < 1) {
+    return edgePairs;
+  }
+
+  const allowed = new Set(primary ? [primary] : []);
+  const limited = [];
+
+  for (const [source, target] of edgePairs) {
+    const additions = [];
+    if (!allowed.has(source)) {
+      additions.push(source);
+    }
+    if (!allowed.has(target)) {
+      additions.push(target);
+    }
+    if (allowed.size + additions.length > nodeLimit) {
+      continue;
+    }
+    additions.forEach((node) => allowed.add(node));
+    limited.push([source, target]);
+  }
+
+  return limited;
 }
 
 function analyzeText(text, threshold) {
@@ -781,6 +828,60 @@ function renderChips(items, type) {
   return `<div class="chips">${items.map((item) => `<button class="chip" type="button" ${attr}="${escapeAttr(item)}">${escapeHtml(item)}</button>`).join("")}</div>`;
 }
 
+function renderPagedChips(items, type, key) {
+  if (!items.length) {
+    return `<div class="empty">None</div>`;
+  }
+  const page = getPage(key, items.length);
+  return renderChips(pageItems(items, page), type) + renderPagination(key, items.length);
+}
+
+function getPage(key, totalItems) {
+  const maxPage = Math.max(0, Math.ceil(totalItems / PAGE_SIZE) - 1);
+  const page = state.pages[key] || 0;
+  const normalized = Math.min(maxPage, Math.max(0, page));
+  state.pages[key] = normalized;
+  return normalized;
+}
+
+function pageItems(items, page) {
+  const start = page * PAGE_SIZE;
+  return items.slice(start, start + PAGE_SIZE);
+}
+
+function renderPagination(key, totalItems) {
+  if (totalItems <= PAGE_SIZE) {
+    return "";
+  }
+  const page = getPage(key, totalItems);
+  const maxPage = Math.ceil(totalItems / PAGE_SIZE) - 1;
+  const start = page * PAGE_SIZE + 1;
+  const end = Math.min(totalItems, start + PAGE_SIZE - 1);
+  return `
+    <div class="pagination">
+      <button type="button" data-page-key="${escapeAttr(key)}" data-page="${page - 1}" ${page === 0 ? "disabled" : ""}>Previous</button>
+      <span>${start}-${end} of ${totalItems}</span>
+      <button type="button" data-page-key="${escapeAttr(key)}" data-page="${page + 1}" ${page >= maxPage ? "disabled" : ""}>Next</button>
+    </div>
+  `;
+}
+
+function resetLookupPages() {
+  for (const key of Object.keys(state.pages)) {
+    if (key.startsWith("lookup-")) {
+      delete state.pages[key];
+    }
+  }
+}
+
+function resetTextPages() {
+  for (const key of Object.keys(state.pages)) {
+    if (key.startsWith("text-")) {
+      delete state.pages[key];
+    }
+  }
+}
+
 function uniqueNodes(edgePairs) {
   const seen = new Set();
   for (const [source, target] of edgePairs) {
@@ -839,10 +940,6 @@ function firstByLocalName(root, localName) {
 function toInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
 }
 
 function escapeHtml(value) {

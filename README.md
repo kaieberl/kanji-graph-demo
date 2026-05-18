@@ -1,6 +1,6 @@
 # Kanji Graph Demo
 
-Code and data for the DSS blog article [Visualizing All Kanji in a Graph](https://dss.i.u-tokyo.ac.jp/blog/visualizing-all-kanji-in-a-graph/).
+Code and data for the University of Tokyo Data Science School blog article [Visualizing All Kanji in a Graph](https://dss.i.u-tokyo.ac.jp/blog/visualizing-all-kanji-in-a-graph/).
 
 ![Graph of 3000 kanji and 500 radicals connected by component relationships](docs/figures/graph_render.jpg)
 
@@ -18,7 +18,9 @@ uv sync
 
 ## Browser demo
 
-The static browser demo in [`demo/`](demo/) exposes the graph query, figure, and text-marking workflows in one UI.
+The static browser demo in [`demo/`](demo/) exposes the graph query, component graph, similarity graph, and kanji difficulty marking workflows in one UI. It runs entirely in the browser using the committed GEXF graph data.
+
+<img src="docs/figures/kanji_difficulty_demo.png" alt="Browser demo showing kanji difficulty marking" width="50%">
 
 Run it from the repository root:
 
@@ -26,7 +28,9 @@ Run it from the repository root:
 python3 -m http.server
 ```
 
-Then open <http://localhost:8000/demo/>. Try kanji such as `時`, `持`, and `詞`, components such as `寺`, `木`, and `司`, or paste Japanese text and move the “known through level” slider to mark unknown kanji.
+Then open <http://localhost:8000/demo/>.
+
+The **Lookup** tab accepts either a kanji or a component. It shows kanji readings, components, similar kanji, containing kanji when relevant, and the corresponding graph. The **Text** tab lets you paste Japanese text, select a known-through level, and highlight unknown kanji; optional ruby hints use browser-loaded kuromoji word readings.
 
 ## Scripts
 

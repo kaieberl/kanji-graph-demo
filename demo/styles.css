@@ -31,6 +31,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -55,6 +56,7 @@ button:disabled {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -129,13 +131,6 @@ th {
   background: var(--panel-strong);
 }
 
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  gap: 18px;
-  padding: 18px;
-}
-
 .panel {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -143,49 +138,43 @@ th {
   box-shadow: var(--shadow);
 }
 
-.controls-panel {
-  position: sticky;
-  top: 18px;
-  align-self: start;
-  overflow: hidden;
-}
-
-.tabs,
-.segmented {
+.top-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 8px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-strong);
 }
 
-.segmented {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  margin-top: 8px;
-}
-
-.tab-button,
-.segment {
+.tab-button {
   min-height: 34px;
   border-color: transparent;
   background: transparent;
   color: var(--muted);
 }
 
-.tab-button.active,
-.segment.active {
+.tab-button.active {
   background: var(--accent);
   color: #fff;
 }
 
-.tab-panel {
+.workspace {
+  padding: 18px;
+}
+
+.tab-view {
   display: none;
 }
 
-.tab-panel.active {
-  display: block;
+.tab-view.active {
+  display: grid;
+  gap: 18px;
+}
+
+.text-view.active {
+  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .control-group {
@@ -243,21 +232,40 @@ th {
   width: auto;
 }
 
-.content-grid {
+.ruby-toggle-row {
+  margin-top: 10px;
+}
+
+.lookup-results {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
 
 .detail-panel,
 .graph-panel,
-.text-results {
+.text-results,
+.text-unknown-panel,
+.text-histogram-panel,
+.text-controls-panel,
+.lookup-search-panel {
   padding: 16px;
 }
 
-.graph-panel,
+.text-controls-panel,
 .text-results {
-  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 360px;
+}
+
+.text-controls-panel textarea,
+.text-results .annotated-text {
+  flex: 1;
+}
+
+.graph-panel.hidden {
+  display: none;
 }
 
 .panel-title-row {
@@ -312,6 +320,21 @@ th {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pagination button {
+  min-height: 30px;
+  padding: 0 10px;
 }
 
 .empty,
@@ -452,21 +475,12 @@ th {
   letter-spacing: 0;
 }
 
-.results-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
-  gap: 16px;
-}
-
 .histogram {
   display: flex;
   align-items: end;
   gap: 6px;
   height: 150px;
   padding: 12px 6px 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel-strong);
 }
 
 .bar {
@@ -491,14 +505,8 @@ th {
 }
 
 @media (max-width: 980px) {
-  .workspace,
-  .content-grid,
-  .results-grid {
+  .text-view.active {
     grid-template-columns: 1fr;
-  }
-
-  .controls-panel {
-    position: static;
   }
 
   .app-header {
@@ -524,8 +532,7 @@ th {
     width: 100%;
   }
 
-  .tabs,
-  .segmented {
+  .top-tabs {
     grid-template-columns: 1fr;
   }
 }
