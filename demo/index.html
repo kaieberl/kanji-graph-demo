@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kanji Graph Demo</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>Kanji Graph Demo</h1>
+        <p id="status">Loading graph data...</p>
+      </div>
+      <div class="header-stats" aria-live="polite">
+        <span><strong id="nodeCount">-</strong> nodes</span>
+        <span><strong id="edgeCount">-</strong> edges</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel controls-panel" aria-label="Controls">
+        <div class="tabs" role="tablist" aria-label="Demo views">
+          <button class="tab-button active" type="button" data-tab="lookup">Lookup</button>
+          <button class="tab-button" type="button" data-tab="text">Text</button>
+        </div>
+
+        <div class="tab-panel active" id="lookupPanel">
+          <form class="control-group" id="kanjiForm">
+            <div class="section-heading">
+              <h2>Kanji</h2>
+            </div>
+            <label for="kanjiInput">Kanji</label>
+            <div class="inline-controls">
+              <input id="kanjiInput" name="kanji" value="時" maxlength="4" autocomplete="off">
+              <button type="submit">Inspect</button>
+            </div>
+            <label for="levelLimit">Similar level limit</label>
+            <input id="levelLimit" type="range" min="0" max="10" value="0">
+            <div class="range-value"><span id="levelLimitValue">0</span></div>
+          </form>
+
+          <form class="control-group" id="componentForm">
+            <div class="section-heading">
+              <h2>Component</h2>
+            </div>
+            <label for="componentInput">Component</label>
+            <div class="inline-controls">
+              <input id="componentInput" name="component" value="寺" maxlength="4" autocomplete="off">
+              <button type="submit">Inspect</button>
+            </div>
+            <label for="componentLimit">Rows</label>
+            <input id="componentLimit" type="number" min="1" max="200" value="25">
+          </form>
+
+          <div class="control-group">
+            <div class="section-heading">
+              <h2>Graph</h2>
+            </div>
+            <div class="segmented" role="group" aria-label="Graph mode">
+              <button class="segment active" type="button" data-graph-mode="example">Example</button>
+              <button class="segment" type="button" data-graph-mode="component">Component</button>
+              <button class="segment" type="button" data-graph-mode="similar">Similar</button>
+            </div>
+            <label for="graphLimit">Node limit</label>
+            <input id="graphLimit" type="range" min="4" max="40" value="12">
+            <div class="range-value"><span id="graphLimitValue">12</span></div>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="textPanel">
+          <div class="control-group">
+            <div class="section-heading">
+              <h2>Text</h2>
+            </div>
+            <label for="textInput">Japanese text</label>
+            <textarea id="textInput" rows="8">風が夜を吹き抜け、世界に変革をもたらす香りを運んできた。彼は一瞬考慮した上で、木々や茂みに隠れるように指示した。</textarea>
+            <label for="knownLevel">Known through level</label>
+            <input id="knownLevel" type="range" min="1" max="10" value="9">
+            <div class="range-value"><span id="knownLevelValue">9</span></div>
+            <div class="toggles">
+              <label><input id="rubyToggle" type="checkbox"> Ruby hints</label>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <section class="content-grid">
+        <article class="panel detail-panel" id="kanjiDetails" aria-live="polite"></article>
+        <article class="panel detail-panel" id="componentDetails" aria-live="polite"></article>
+        <article class="panel graph-panel">
+          <div class="panel-title-row">
+            <h2 id="graphTitle">Component edges</h2>
+            <span id="graphMeta" class="meta"></span>
+          </div>
+          <div id="graphSvg" class="graph-canvas" role="img" aria-label="Kanji graph visualization"></div>
+        </article>
+        <article class="panel text-results" id="textResults" aria-live="polite"></article>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

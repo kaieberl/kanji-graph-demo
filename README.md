@@ -16,6 +16,18 @@ Install dependencies with:
 uv sync
 ```
 
+## Browser demo
+
+The static browser demo in [`demo/`](demo/) exposes the graph query, figure, and text-marking workflows in one UI.
+
+Run it from the repository root:
+
+```bash
+python3 -m http.server
+```
+
+Then open <http://localhost:8000/demo/>. Try kanji such as `時`, `持`, and `詞`, components such as `寺`, `木`, and `司`, or paste Japanese text and move the “known through level” slider to mark unknown kanji.
+
 ## Scripts
 
 - [`src/main.py`](src/main.py): query kanji readings, components, and similar kanji.
