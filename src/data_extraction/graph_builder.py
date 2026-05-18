@@ -1,15 +1,9 @@
-"""Demonstrate how the kanji component graph is constructed.
-
-The full source scrape is intentionally not included in this repository. This
-module shows the clean transformation used after dictionary records have been
-normalized: each kanji becomes a node, and every component relation becomes a
-directed edge from the component to the kanji that contains it.
+"""Demonstrates how the kanji component graph is constructed.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,29 +46,6 @@ def build_graph(records: tuple[KanjiRecord, ...] | list[KanjiRecord]) -> nx.DiGr
     return graph
 
 
-def write_nodes_to_csv(graph: nx.DiGraph, filename: Path) -> None:
-    with filename.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["Id", "Level", "Reading_On", "Reading_Kun", "Strokes"])
-        for node, attrs in graph.nodes(data=True):
-            writer.writerow(
-                [
-                    node,
-                    attrs.get("level", -1),
-                    attrs.get("reading_on", []),
-                    attrs.get("reading_kun", []),
-                    attrs.get("strokes", -1),
-                ]
-            )
-
-
-def write_edges_to_csv(graph: nx.DiGraph, filename: Path) -> None:
-    with filename.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(["Source", "Target"])
-        writer.writerows(graph.edges())
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default=Path("outputs/example_graph"), type=Path)
@@ -87,8 +58,6 @@ def main() -> None:
 
     graph = build_graph(EXAMPLE_RECORDS)
     nx.write_gexf(graph, args.output_dir / "example_kanji_digraph.gexf")
-    write_nodes_to_csv(graph, args.output_dir / "example_kanji_nodes.csv")
-    write_edges_to_csv(graph, args.output_dir / "example_kanji_edges.csv")
 
     print(f"nodes={graph.number_of_nodes()} edges={graph.number_of_edges()}")
     print(f"wrote {args.output_dir}")
