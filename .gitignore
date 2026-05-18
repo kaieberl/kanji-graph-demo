@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+.idea/
+.pytest_cache/
+outputs/
+data/scraped_data/
+data/kanji_data_*.json

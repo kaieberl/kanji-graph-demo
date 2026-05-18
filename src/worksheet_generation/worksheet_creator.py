@@ -1,166 +1,197 @@
-import json
+"""Create worksheet input from Japanese text and the kanji component graph.
+
+The deterministic dry-run path extracts kanji and vocabulary from an input text.
+With OPENAI_API_KEY set, the script can ask GPT-5.2 to turn that extracted
+input into Markdown tables for a worksheet.
+"""
+
+from __future__ import annotations
+
+import argparse
 import os
-import logging
-from pathlib import Path
-from typing import List
 import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
 
-import hydra
+from dotenv import load_dotenv
 from openai import OpenAI
-from sudachipy import Dictionary, SplitMode
-from omegaconf import DictConfig
 
-from src.main import KanjiGraph
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-PROJECT_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = PROJECT_DIR / 'out'
-os.environ['OPENAI_API_KEY'] = (PROJECT_DIR / 'openai.txt').read_text().strip()
-
-graph = KanjiGraph('data/kanji_digraph.gexf')
+from src.main import DEFAULT_GRAPH_PATH, KanjiGraph
 
 
-def get_kanji_data(kanjis: List[str] = None):
-    """
-    Make a list of all kanji in the graph, their components and similar kanji that are not in a lower (more difficult) level
-    Write the list to a json file, e.g.: 伺,[亻,司],[飼,詞]
-    """
-    if not kanjis:
-        kanjis = list(graph.G.nodes)
-    kanji_list = []
-    for kanji in kanjis:
-        level = graph.get_level(kanji)
-        if level >= 0:
-            components, compounds, similar_kanji = graph.get_components_compounds_and_similar_kanji(kanji,
-                                                                                                    level_limit=level)
-            if len(components) > 0:
-                kanji_list.append([kanji, components, compounds, similar_kanji])
-    with open('kanji_list.csv', 'w', encoding='utf-8') as f:
-        f.write('kanji,components,compounds,similar_kanji\n')
-        for item in kanji_list:
-            components_str = '"' + ','.join(item[1]) + '"' if item[1] else '""'
-            compounds_str = '"' + ','.join(item[2]) + '"' if item[2] else '""'
-            similar_kanji_str = '"' + ','.join(item[3]) + '"' if item[3] else '""'
-
-            # Format as a single CSV line
-            csv_line = f"{item[0]},{components_str},{compounds_str},{similar_kanji_str}"
-            f.write(csv_line + '\n')
+MODEL = "gpt-5.2"
+REASONING = {"effort": "none"}
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "worksheets"
 
 
-def request_gpt(user_message: str, model: str, tokens: int) -> json:
-    client = OpenAI()
-    return client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": user_message},
-        ],
-        max_tokens=tokens,
-        temperature=0.1
+@dataclass(frozen=True)
+class WorksheetInput:
+    explanations: str
+    vocabulary: str
+
+
+def _tokenize(text: str) -> list[str]:
+    try:
+        from sudachipy import Dictionary, SplitMode
+    except ImportError:
+        return [char for char in text if "\u4e00" <= char <= "\u9fff"]
+
+    tokenizer = Dictionary().create()
+    return [morpheme.surface() for morpheme in tokenizer.tokenize(text, SplitMode.A)]
+
+
+def extract_worksheet_input(text: str, graph: KanjiGraph, level: int) -> WorksheetInput:
+    tokens = _tokenize(text)
+    seen_kanji: set[str] = set()
+    explanation_lines: list[str] = []
+    vocabulary_lines: list[str] = []
+
+    for char in text:
+        if char in seen_kanji:
+            continue
+        kanji_level = graph.get_level(char)
+        if not 0 <= kanji_level <= level:
+            continue
+
+        seen_kanji.add(char)
+        containing_word = next((token for token in tokens if char in token), char)
+        vocabulary_lines.append(containing_word)
+
+        _, reading_kun = graph.get_readings(char)
+        reading_hints = _format_kunyomi_hints(char, reading_kun)
+        similar_kanji = graph.get_similar_kanji(char, level_limit=level)
+        warning = " ".join(f"!{item}" for item in similar_kanji)
+        explanation_lines.append(" ".join(part for part in [reading_hints, containing_word, warning] if part))
+
+    return WorksheetInput(
+        explanations="\n".join(explanation_lines),
+        vocabulary="\n".join(vocabulary_lines),
     )
 
 
-def request_table_explanations(kanji_list: str):
-    message = f"""以下の日本語の単語を使って、最終的な表を作成してください。各行は表の一行に対応します。
-角括弧[]で囲まれた単語や漢字については、最も一般的に使用されている単語のうちの1つを選んでください。新しい単語を作り出さないでください。与えられた漢字を正確に同じようにコピーしてください。これらの単語については、「使い方」列に角括弧に続く単語を入れてください。
-'''{kanji_list}'''
-表には「日本語」、「読み方」、「意味」、「使い方」、「注意」という列があります。最初の列には私が渡した単語や漢字を、二列目にはふりがなの読み方を、三列目にはドイツ語の翻訳を、四列目には角括弧に続く単語を、最後の列にはビックリマーク(!)で示された、似ている漢字を入れてください。[選ばれた指定された単語]が提供された漢字の表記と正確に一致していることを確認してください。
-使い方の単語の後に、先頭にダッシュを付けて、括弧内にひらがなの読み方を入れてください(-...)。そうして、マークダウンのリンクを作りなさい。例：[皆様](-みなさま)
-例：
-| 日本語   | 読み方        | 意味               | 使い方    |
-|----------|--------------|------------------|-----------|---|
-| 蔵       | くら          | Speicher         | [蔵書](-ぞうしょ)     |
-| 皆       | みな          | Alle             | [皆様](-みなさま)      |"""
-    response = request_gpt(message, "gpt-4-1106-preview", 300)
-    return response.choices[0].message.content.strip()
+def _format_kunyomi_hints(kanji: str, readings: list[str]) -> str:
+    if not readings:
+        return kanji
+    hints: list[str] = []
+    for reading in readings:
+        if "（" in reading and "）" in reading:
+            hints.append(kanji + reading.split("（", 1)[1].split("）", 1)[0])
+        else:
+            hints.append(kanji)
+    return "[" + " ".join(hints) + "]"
 
 
-def request_table_vocabs(kanji_list: str):
-    message = f"""以下の日本語の単語を使って、最終的な表を作成してください。各行は表の一行に対応します。
-'''{kanji_list}'''
-表には「日本語」、「読み方」、「意味」という列があります。最初の列には私が渡した単語や漢字を、二列目にはふりがなの読み方を、三列目にはドイツ語の翻訳を入れてください。
-例：
-| 日本語   | 読み方        | 意味               |
-|----------|--------------|------------------|
-| 半蔵     | はんぞう      | Halbversteckt    |
-| 皆       | みな          | Alle             |"""
-    response = request_gpt(message, "gpt-4-1106-preview", 300)
-    return response.choices[0].message.content.strip()
+def generate_markdown_table(prompt: str) -> str:
+    load_dotenv(REPO_ROOT / ".env")
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY is required unless --dry-run is used.")
+
+    client = OpenAI()
+    response = client.responses.create(
+        model=MODEL,
+        input=prompt,
+        reasoning=REASONING,
+    )
+    return response.output_text.strip()
 
 
-def compile_worksheet(input_file: Path):
-    command = f"pandoc -F handle_furigana.py {OUTPUT_DIR / input_file} -o {OUTPUT_DIR / f'{input_file.stem}.pdf'} --template=japanese-template.tex"
-    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output, error = process.communicate()
+def build_explanation_prompt(worksheet_input: WorksheetInput) -> str:
+    return f"""以下の日本語の単語を使って、最終的な表を作成してください。
+角括弧[]で囲まれた単語や漢字については、最も一般的に使用されている単語のうちの1つを選んでください。
+ビックリマーク(!)で示された似ている漢字を「注意」列に入れてください。
 
-    if process.returncode == 0:
-        os.system(f"open {OUTPUT_DIR / input_file.stem}.pdf")
+入力:
+'''{worksheet_input.explanations}'''
+
+表には「日本語」、「読み方」、「意味」、「使い方」、「注意」という列があります。
+意味はドイツ語で書いてください。使い方の単語は Markdown リンクにし、リンク先にひらがなの読み方を入れてください。
+例: [皆様](-みなさま)
+"""
+
+
+def build_vocabulary_prompt(worksheet_input: WorksheetInput) -> str:
+    return f"""以下の日本語の単語を使って、最終的な表を作成してください。
+
+入力:
+'''{worksheet_input.vocabulary}'''
+
+表には「日本語」、「読み方」、「意味」という列があります。
+意味はドイツ語で書いてください。
+"""
+
+
+def write_outputs(worksheet_input: WorksheetInput, output_dir: Path, dry_run: bool) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if dry_run:
+        files = {
+            "worksheet-explanations-input.txt": worksheet_input.explanations,
+            "worksheet-vocabulary-input.txt": worksheet_input.vocabulary,
+        }
     else:
-        raise Exception(error.decode('utf-8'))
+        files = {
+            "worksheet-explanations.md": generate_markdown_table(build_explanation_prompt(worksheet_input)),
+            "worksheet-vocabulary.md": generate_markdown_table(build_vocabulary_prompt(worksheet_input)),
+        }
+
+    written: list[Path] = []
+    for filename, content in files.items():
+        path = output_dir / filename
+        path.write_text(content + "\n", encoding="utf-8")
+        written.append(path)
+    return written
 
 
-@hydra.main(config_path="../../config", config_name="config")
-def main(config: DictConfig):
-    """
-    Print all kanji in the graph that are in a certain level or lower, marked with * for ChatGPT to search for words.
-    Also print kunyomi if available.
-
-    Example usage:
-    python3 worksheet_creator.py -i kanji_list.csv -l 10
-    """
-    input_file = config.input_file
-
-    with open(input_file, 'r', encoding='utf-8') as f:
-        text = f.read()
-    tokenizer = Dictionary().create()
-    morphemes = tokenizer.tokenize(text, SplitMode.A)
-    kanji_list_expl = ""
-    kanji_list_vocab = ""
-    for kanji in text:
-        if 0 <= graph.get_level(kanji) <= int(config.level) and kanji not in kanji_list_vocab:
-            # print word containing kanji
-            for morpheme in morphemes:
-                if kanji in morpheme.surface():
-                    kanji_list_vocab += f'{morpheme.surface()}\n'
-                    break
-            _, reading_kun = graph.get_readings(kanji)
-            # extract characters enclosed in brackets from first reading_kun
-            if reading_kun:
-                kanji_list_expl += "["
-                try:
-                    for i in range(len(reading_kun)):
-                        kanji_list_expl += kanji + reading_kun[i].split('（')[1].split('）')[0] + (
-                            ' ' if i < len(reading_kun) - 1 else ']')
-                except IndexError:  # kunyomi without accompanying hiragana
-                    # print(kanji)
-                    kanji_list_expl += kanji + ']'
-            common_word = graph.G.nodes[kanji]['common_word'] if 'common_word' in graph.G.nodes[kanji] else ''
-            kanji_list_expl += f' {common_word}'
-            similar_kanji = graph.get_similar_kanji(kanji, level_limit=config.level)
-            kanji_list_expl += f'{" !".join(similar_kanji)}\n'
-
-    logging.info(f"Kanji list with explanations:\n{kanji_list_expl}")
-    logging.info(f"Kanji list with vocabs:\n{kanji_list_vocab}")
-    # sys.exit(0) # only print kanji list, since gpt-4 still makes mistakes
-    response = request_table_explanations(kanji_list_expl)
-    logging.info(f"Response:\n{response}")
-    response = [line for line in response.split('\n') if len(line) < 63 and line.count('|') == 6]
-    response = '\n'.join(response)
-    # write one version with explanations, one without
-    with open(OUTPUT_DIR / f'vocab-{input_file.stem}-explanations.md', 'w', encoding='utf-8') as f:
-        f.write(response)
-    compile_worksheet(Path(f'vocab-{input_file.stem}-explanations.md'))
-    response = request_table_vocabs(kanji_list_vocab)
-    logging.info(f"Response:\n{response}")
-    response = [line for line in response.split('\n') if len(line) < 55 and line.count('|') == 4]
-    response = '\n'.join(response)
-    with open(OUTPUT_DIR / f'vocab-{input_file.stem}-vocabs.md', 'w', encoding='utf-8') as f:
-        f.write(response)
-    compile_worksheet(Path(f'vocab-{input_file.stem}-vocabs.md'))
+def compile_pdf(markdown_path: Path) -> Path:
+    pdf_path = markdown_path.with_suffix(".pdf")
+    template = REPO_ROOT / "out" / "japanese-template.tex"
+    command = ["pandoc", str(markdown_path), "-o", str(pdf_path), f"--template={template}"]
+    subprocess.run(command, check=True)
+    return pdf_path
 
 
-if __name__ == '__main__':
-    if not OUTPUT_DIR.exists():
-        OUTPUT_DIR.mkdir()
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input-file", default=REPO_ROOT / "data" / "input_texts" / "test_input.txt", type=Path)
+    parser.add_argument("--graph", default=DEFAULT_GRAPH_PATH, type=Path)
+    parser.add_argument("--level", default=5, type=int)
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, type=Path)
+    parser.add_argument("--dry-run", action="store_true", help="Write deterministic LLM input only.")
+    parser.add_argument("--pdf", action="store_true", help="Compile generated Markdown with pandoc.")
+    args, overrides = parser.parse_known_args()
+
+    for item in overrides:
+        if "=" not in item:
+            parser.error(f"unrecognized argument: {item}")
+        key, value = item.split("=", 1)
+        if key == "input_file":
+            args.input_file = Path(value)
+        elif key == "level":
+            args.level = int(value)
+        elif key == "output_dir":
+            args.output_dir = Path(value)
+        else:
+            parser.error(f"unknown override: {key}")
+    return args
+
+
+def main() -> None:
+    args = parse_args()
+    graph = KanjiGraph(args.graph)
+    text = args.input_file.read_text(encoding="utf-8")
+    worksheet_input = extract_worksheet_input(text, graph, level=args.level)
+    written = write_outputs(worksheet_input, args.output_dir, dry_run=args.dry_run)
+
+    if args.pdf and not args.dry_run:
+        written.extend(compile_pdf(path) for path in written if path.suffix == ".md")
+
+    for path in written:
+        print(path.relative_to(REPO_ROOT))
+
+
+if __name__ == "__main__":
     main()

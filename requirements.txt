@@ -1,8 +1,7 @@
-bs4
-selenium
-networkx
-numpy
-openai
-pandas
-SudachiPy
 matplotlib
+networkx
+openai
+pytest
+python-dotenv
+sudachidict_core
+SudachiPy
