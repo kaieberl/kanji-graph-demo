@@ -12,8 +12,11 @@ dependencies = [
   "SudachiPy",
 ]
 
-[project.optional-dependencies]
-test = ["pytest"]
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

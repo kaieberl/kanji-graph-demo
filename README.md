@@ -4,6 +4,12 @@ Code and data for the DSS blog article on visualizing Japanese kanji as a compon
 
 The repository includes the generated graph data needed to reproduce the article’s code outputs and scripted figures. It does not include the full source scrape.
 
+Install dependencies with:
+
+```bash
+uv sync --dev
+```
+
 ## Scripts
 
 - [`src/main.py`](src/main.py): query kanji readings, components, and similar kanji.
