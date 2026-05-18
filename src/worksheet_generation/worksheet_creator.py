@@ -14,6 +14,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+from openai import OpenAI
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.main import DEFAULT_GRAPH_PATH, KanjiGraph
@@ -23,7 +26,6 @@ MODEL = "gpt-5.2"
 REASONING = {"effort": "none"}
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "outputs" / "worksheets"
-PARTICLES = set("がをにへとでのもやかは")
 
 
 @dataclass(frozen=True)
@@ -32,12 +34,23 @@ class WorksheetInput:
     vocabulary: str
 
 
+def _tokenize(text: str) -> list[str]:
+    try:
+        from sudachipy import Dictionary, SplitMode
+    except ImportError:
+        return [char for char in text if "\u4e00" <= char <= "\u9fff"]
+
+    tokenizer = Dictionary().create()
+    return [morpheme.surface() for morpheme in tokenizer.tokenize(text, SplitMode.A)]
+
+
 def extract_worksheet_input(text: str, graph: KanjiGraph, level: int) -> WorksheetInput:
+    tokens = _tokenize(text)
     seen_kanji: set[str] = set()
     explanation_lines: list[str] = []
     vocabulary_lines: list[str] = []
 
-    for index, char in enumerate(text):
+    for char in text:
         if char in seen_kanji:
             continue
         kanji_level = graph.get_level(char)
@@ -45,7 +58,7 @@ def extract_worksheet_input(text: str, graph: KanjiGraph, level: int) -> Workshe
             continue
 
         seen_kanji.add(char)
-        containing_word = extract_containing_word(text, index)
+        containing_word = next((token for token in tokens if char in token), char)
         vocabulary_lines.append(containing_word)
 
         _, reading_kun = graph.get_readings(char)
@@ -58,39 +71,6 @@ def extract_worksheet_input(text: str, graph: KanjiGraph, level: int) -> Workshe
         explanations="\n".join(explanation_lines),
         vocabulary="\n".join(vocabulary_lines),
     )
-
-
-def extract_containing_word(text: str, index: int) -> str:
-    """Extract a compact example word around a kanji without a tokenizer."""
-    start = index
-    while start > 0 and _is_kanji(text[start - 1]):
-        start -= 1
-
-    end = index + 1
-    while end < len(text) and _is_kanji(text[end]):
-        end += 1
-
-    okurigana_end = end
-    while (
-        okurigana_end < len(text)
-        and _is_hiragana(text[okurigana_end])
-        and text[okurigana_end] not in PARTICLES
-        and okurigana_end - end < 2
-    ):
-        okurigana_end += 1
-
-    word = text[start:okurigana_end]
-    while len(word) > 1 and word[-1] in PARTICLES:
-        word = word[:-1]
-    return word
-
-
-def _is_kanji(char: str) -> bool:
-    return "\u4e00" <= char <= "\u9fff"
-
-
-def _is_hiragana(char: str) -> bool:
-    return "\u3040" <= char <= "\u309f"
 
 
 def _format_kunyomi_hints(kanji: str, readings: list[str]) -> str:
@@ -106,12 +86,6 @@ def _format_kunyomi_hints(kanji: str, readings: list[str]) -> str:
 
 
 def generate_markdown_table(prompt: str) -> str:
-    try:
-        from dotenv import load_dotenv
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError("Install the LLM extras to generate tables: pip install -e '.[llm]'") from exc
-
     load_dotenv(REPO_ROOT / ".env")
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY is required unless --dry-run is used.")

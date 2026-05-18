@@ -10,12 +10,6 @@ python src/worksheet_generation/worksheet_creator.py input_file=data/input_texts
 
 If `.env` contains `OPENAI_API_KEY`, the script can ask `gpt-5.2` to turn the extracted input into Markdown tables. The model is hardcoded in the script and uses `reasoning.effort="none"` for low-latency table generation.
 
-Install optional LLM dependencies first:
-
-```bash
-pip install -e '.[llm]'
-```
-
 Generated files are written to `outputs/worksheets/`.
 
 ![Similar kanji around 持](../../docs/figures/similar_持.png)
