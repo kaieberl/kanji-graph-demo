@@ -20,7 +20,6 @@ uv sync --dev
 - [`src/data_extraction/graph_builder.py`](src/data_extraction/graph_builder.py): small example showing how normalized kanji records become a component graph.
 - [`src/worksheet_generation/worksheet_creator.py`](src/worksheet_generation/worksheet_creator.py): create worksheet input from Japanese text; optional live table generation uses hardcoded `gpt-5.2`.
 - [`scripts/render_figures.py`](scripts/render_figures.py): render small reproducible graph figures for the documentation.
-- [`kanji_graph/query_graph.py`](kanji_graph/query_graph.py): compatibility wrapper for the original query experiment.
 
 ## Data
 
