@@ -2,6 +2,12 @@
 
 `render_figures.py` renders small, reproducible graph figures from `data/kanji_digraph.gexf`.
 
+Install the optional figure dependency first:
+
+```bash
+pip install -e '.[figures]'
+```
+
 ```bash
 python scripts/render_figures.py --component 寺 --component 木 --kanji 持 --output docs/figures
 ```

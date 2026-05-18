@@ -1,7 +1,1 @@
-matplotlib
 networkx
-openai
-pytest
-python-dotenv
-sudachidict_core
-SudachiPy

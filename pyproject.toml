@@ -4,15 +4,12 @@ version = "0.1.0"
 description = "Reproducible code and data for the kanji component graph demo."
 requires-python = ">=3.10"
 dependencies = [
-  "matplotlib",
   "networkx",
-  "openai",
-  "python-dotenv",
-  "sudachidict_core",
-  "SudachiPy",
 ]
 
 [project.optional-dependencies]
+figures = ["matplotlib"]
+llm = ["openai", "python-dotenv"]
 test = ["pytest"]
 
 [tool.pytest.ini_options]
