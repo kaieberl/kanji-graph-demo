@@ -1,6 +1,10 @@
 # Kanji Graph Demo
 
-Code and data for the DSS blog article on visualizing Japanese kanji as a component graph. The graph uses directed edges of the form `component -> kanji`, for example `寺 -> 時`.
+Code and data for the DSS blog article [Visualizing All Kanji in a Graph](https://dss.i.u-tokyo.ac.jp/blog/visualizing-all-kanji-in-a-graph/).
+
+![Kanji containing 寺](docs/figures/component_寺.png)
+
+The graph uses directed edges of the form `component -> kanji`, for example `寺 -> 時`.
 
 The repository includes the generated graph data needed to reproduce the article’s code outputs and scripted figures. It does not include the full source scrape.
 
